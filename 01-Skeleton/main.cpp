@@ -141,8 +141,8 @@ void Render()
 		mario->Render();
 
 		// Uncomment this line to see how to draw a porttion of a texture  
-		//g->Draw(10, 10, texMisc, 300, 117, 317, 134);
-		//g->Draw(10, 10, texMario, 215, 120, 234, 137);
+		g->Draw(10, 10, texMisc, 300, 117, 317, 134);
+		g->Draw(10, 10, texMario, 215, 120, 234, 137);
 
 		spriteHandler->End();
 		pSwapChain->Present(0, 0);

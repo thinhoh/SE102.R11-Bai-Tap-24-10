@@ -8,6 +8,7 @@
 #include "Goomba.h"
 //#include "Koopas.h"
 
+class CSpawner;
 
 class CPlayScene: public CScene
 {
@@ -16,6 +17,8 @@ protected:
 	LPGAMEOBJECT player;					
 
 	vector<LPGAMEOBJECT> objects;
+
+	CSpawner* spawner;
 
 	void _ParseSection_SPRITES(string line);
 	void _ParseSection_ANIMATIONS(string line);
@@ -34,6 +37,9 @@ public:
 	virtual void Unload();
 
 	LPGAMEOBJECT GetPlayer() { return player; }
+	void AddObject(LPGAMEOBJECT o) { objects.push_back(o); }
+
+	CSpawner* GetSpawner() { return spawner; }
 
 	void Clear();
 	void PurgeDeletedObjects();
@@ -42,4 +48,3 @@ public:
 };
 
 typedef CPlayScene* LPPLAYSCENE;
-

@@ -38,6 +38,7 @@ WARNING: This one file example has a hell LOT of *sinful* programming practices
 #include <stdlib.h>
 
 #include <comdef.h>
+#include <math.h>
 
 #define WINDOW_CLASS_NAME L"SampleWindow"
 #define WINDOW_TITLE L"00 - Intro"
@@ -61,13 +62,19 @@ int BackBufferWidth = 0;
 int BackBufferHeight = 0;
 
 #define TEXTURE_PATH_BRICK L"brick.png"
-#define BRICK_START_X 8.0f
-#define BRICK_START_Y 200.0f
+#define BRICK_START_X 100.0f
+#define BRICK_START_Y 50.0f
 
-#define BRICK_START_VX 0.2f
+#define BRICK_START_VX 0.15f
+#define BRICK_START_VY 0.15f
 
 #define BRICK_WIDTH 16.0f
 #define BRICK_HEIGHT 16.0f
+
+#define PADDLE_WIDTH 80.0f
+#define PADDLE_HEIGHT 16.0f
+#define PADDLE_SPEED 0.35f
+#define PADDLE_START_Y 420.0f
 
 
 ID3D10Texture2D* texBrick = NULL;				// Texture object to store brick image
@@ -78,6 +85,11 @@ D3DX10_SPRITE spriteBrick;
 float brick_x = BRICK_START_X;
 float brick_vx = BRICK_START_VX;
 float brick_y = BRICK_START_Y;
+float brick_vy = BRICK_START_VY;
+
+float paddle_x = (WINDOW_WIDTH - PADDLE_WIDTH) / 2.0f;
+float paddle_y = PADDLE_START_Y;
+float paddle_vx = 0.0f;
 
 
 LRESULT CALLBACK WinProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -313,7 +325,7 @@ void LoadResources()
 
 	pD3DDevice->CreateShaderResourceView(texBrick, &SRVDesc, &gSpriteTextureRV);
 
-	// Set the sprite’s shader resource view
+	// Set the spriteâ€™s shader resource view
 	spriteBrick.pTexture = gSpriteTextureRV;
 
 	// top-left location in U,V coords
@@ -342,28 +354,145 @@ void LoadResources()
 */
 void Update(DWORD dt)
 {
-	//Uncomment the whole function to see the brick moves and bounces back when hitting left and right edges
-	//brick_x++;
+	if (dt == 0) return;
 
-	brick_x += brick_vx*dt; 
-
-	// NOTE: BackBufferWidth is indeed related to rendering!!
-	float right_edge = BackBufferWidth - BRICK_WIDTH;
-
-	if (brick_x < 0 || brick_x > right_edge) {
-
-		brick_vx = -brick_vx;
-
-		//	//Why not having these logics would make the brick disappear sometimes?  
-		////	if (brick_x < 0)
-		////	{
-		////		brick_x = 0;
-		////	}
-		////	else if (brick_x > right_edge )
-		////	{
-		////		brick_x = right_edge;
-		////	}
+	// 1. Paddle input handling (Left & Right arrow keys)
+	paddle_vx = 0.0f;
+	if (GetAsyncKeyState(VK_LEFT) & 0x8000)
+	{
+		paddle_vx -= PADDLE_SPEED;
 	}
+	if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
+	{
+		paddle_vx += PADDLE_SPEED;
+	}
+
+	float prev_paddle_x = paddle_x;
+	paddle_x += paddle_vx * dt;
+	if (paddle_x < 0) paddle_x = 0;
+	if (paddle_x > BackBufferWidth - PADDLE_WIDTH)
+		paddle_x = (float)(BackBufferWidth - PADDLE_WIDTH);
+
+	// 2. Continuous Collision Detection (CCD) for ball & paddle
+	float prev_brick_x = brick_x;
+	float prev_brick_y = brick_y;
+
+	float next_brick_x = brick_x + brick_vx * dt;
+	float next_brick_y = brick_y + brick_vy * dt;
+
+	// Check top collision with paddle (when ball is moving down)
+	bool hitPaddleTop = false;
+	if (brick_vy > 0)
+	{
+		float prev_bottom = prev_brick_y + BRICK_HEIGHT;
+		float next_bottom = next_brick_y + BRICK_HEIGHT;
+
+		// Ball crossed the paddle top plane in this frame
+		if (prev_bottom <= paddle_y && next_bottom >= paddle_y)
+		{
+			float t = 0.0f;
+			if (next_bottom != prev_bottom)
+				t = (paddle_y - prev_bottom) / (next_bottom - prev_bottom);
+
+			if (t >= 0.0f && t <= 1.0f)
+			{
+				float hit_ball_x = prev_brick_x + brick_vx * dt * t;
+				float hit_paddle_x = prev_paddle_x + paddle_vx * dt * t;
+
+				// Check horizontal overlap at the exact moment of collision
+				if (hit_ball_x + BRICK_WIDTH >= hit_paddle_x && hit_ball_x <= hit_paddle_x + PADDLE_WIDTH)
+				{
+					hitPaddleTop = true;
+
+					// Place ball exactly on top of paddle surface
+					brick_y = paddle_y - BRICK_HEIGHT;
+					brick_x = hit_ball_x;
+
+					// --- Realistic Physics Reflection ---
+					// Preserve total kinetic energy / speed
+					float current_speed = sqrtf(brick_vx * brick_vx + brick_vy * brick_vy);
+					if (current_speed < 0.2f) current_speed = 0.2f;
+
+					// Relative impact location [-1.0 .. 1.0] from center of paddle
+					float paddleCenter = hit_paddle_x + PADDLE_WIDTH / 2.0f;
+					float ballCenter = hit_ball_x + BRICK_WIDTH / 2.0f;
+					float hitFactor = (ballCenter - paddleCenter) / (PADDLE_WIDTH / 2.0f);
+					if (hitFactor < -1.0f) hitFactor = -1.0f;
+					if (hitFactor > 1.0f) hitFactor = 1.0f;
+
+					// Transfer horizontal momentum from moving paddle
+					float paddleMomentum = (paddle_vx / PADDLE_SPEED) * 0.25f;
+					hitFactor += paddleMomentum;
+					if (hitFactor < -0.85f) hitFactor = -0.85f;
+					if (hitFactor > 0.85f) hitFactor = 0.85f;
+
+					// Bounce angle up to ~60 degrees from vertical
+					const float MAX_BOUNCE_ANGLE = 3.14159265f / 3.0f; // 60 degrees
+					float bounceAngle = hitFactor * MAX_BOUNCE_ANGLE;
+
+					brick_vx = current_speed * sinf(bounceAngle);
+					brick_vy = -current_speed * cosf(bounceAngle);
+
+					// Advance remainder of frame time
+					float remainingDt = (1.0f - t) * dt;
+					brick_x += brick_vx * remainingDt;
+					brick_y += brick_vy * remainingDt;
+				}
+			}
+		}
+	}
+
+	if (!hitPaddleTop)
+	{
+		brick_x = next_brick_x;
+		brick_y = next_brick_y;
+
+		// Side collision handling: when ball hits the left or right edge of paddle
+		if (brick_y + BRICK_HEIGHT > paddle_y && brick_y < paddle_y + PADDLE_HEIGHT)
+		{
+			// Left side of paddle
+			if (brick_vx > 0 && brick_x + BRICK_WIDTH >= paddle_x && prev_brick_x + BRICK_WIDTH <= prev_paddle_x + 2.0f)
+			{
+				brick_x = paddle_x - BRICK_WIDTH;
+				brick_vx = -fabsf(brick_vx);
+			}
+			// Right side of paddle
+			else if (brick_vx < 0 && brick_x <= paddle_x + PADDLE_WIDTH && prev_brick_x >= prev_paddle_x + PADDLE_WIDTH - 2.0f)
+			{
+				brick_x = paddle_x + PADDLE_WIDTH;
+				brick_vx = fabsf(brick_vx);
+			}
+		}
+	}
+
+	// 3. Wall collisions (Left, Right, Top)
+	if (brick_x < 0)
+	{
+		brick_x = 0;
+		brick_vx = fabsf(brick_vx);
+	}
+	else if (brick_x > BackBufferWidth - BRICK_WIDTH)
+	{
+		brick_x = (float)(BackBufferWidth - BRICK_WIDTH);
+		brick_vx = -fabsf(brick_vx);
+	}
+
+	if (brick_y < 0)
+	{
+		brick_y = 0;
+		brick_vy = fabsf(brick_vy);
+	}
+
+	// 4. Reset ball if it drops past bottom of screen
+	if (brick_y > BackBufferHeight)
+	{
+		brick_x = BRICK_START_X;
+		brick_y = BRICK_START_Y;
+		brick_vx = BRICK_START_VX;
+		brick_vy = BRICK_START_VY;
+	}
+
+	DebugOutTitle((wchar_t*)L"Ping Pong - Ball: (%0.1f, %0.1f) | Paddle: %0.1f", brick_x, brick_y, paddle_x);
 }
 
 /*
@@ -380,24 +509,27 @@ void Render()
 		// start drawing the sprites
 		spriteObject->Begin(D3DX10_SPRITE_SORT_TEXTURE);
 
-		// The translation matrix to be created
+		// 1. Draw Ball (Brick)
 		D3DXMATRIX matTranslation;
-		// Create the translation matrix
 		D3DXMatrixTranslation(&matTranslation, brick_x, (BackBufferHeight - brick_y), 0.1f);
-
-		// Scale the sprite to its correct width and height
 		D3DXMATRIX matScaling;
 		D3DXMatrixScaling(&matScaling, BRICK_WIDTH, BRICK_HEIGHT, 1.0f);
-
-		// Setting the sprite’s position and size
 		spriteBrick.matWorld = (matScaling * matTranslation);
-
 		spriteObject->DrawSpritesImmediate(&spriteBrick, 1, 0, 0);
+
+		// 2. Draw Paddle (Tiled 16x16 bricks for crisp pixel art visuals)
+		for (float px = paddle_x; px < paddle_x + PADDLE_WIDTH - 0.1f; px += BRICK_WIDTH)
+		{
+			D3DXMATRIX matPaddleTranslation;
+			D3DXMatrixTranslation(&matPaddleTranslation, px, (BackBufferHeight - paddle_y), 0.1f);
+			D3DXMATRIX matPaddleScaling;
+			D3DXMatrixScaling(&matPaddleScaling, BRICK_WIDTH, BRICK_HEIGHT, 1.0f);
+			spriteBrick.matWorld = (matPaddleScaling * matPaddleTranslation);
+			spriteObject->DrawSpritesImmediate(&spriteBrick, 1, 0, 0);
+		}
 
 		// Finish up and send the sprites to the hardware
 		spriteObject->End();
-
-		//DebugOutTitle((wchar_t*)L"%s (%0.1f,%0.1f) v:%0.1f", WINDOW_TITLE, brick_x, brick_y, brick_vx);
 
 		// display the next item in the swap chain
 		pSwapChain->Present(0, 0);

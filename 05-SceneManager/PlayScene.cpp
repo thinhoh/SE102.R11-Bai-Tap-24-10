@@ -11,6 +11,7 @@
 #include "Platform.h"
 
 #include "SampleKeyEventHandler.h"
+#include "Spawner.h"
 
 using namespace std;
 
@@ -18,6 +19,7 @@ CPlayScene::CPlayScene(int id, LPCWSTR filePath):
 	CScene(id, filePath)
 {
 	player = NULL;
+	spawner = NULL;
 	key_handler = new CSampleKeyHandler(this);
 }
 
@@ -229,10 +231,16 @@ void CPlayScene::Load()
 	f.close();
 
 	DebugOut(L"[INFO] Done loading scene  %s\n", sceneFilePath);
+
+	spawner = new CSpawner(this);
+	spawner->StartFirstWaveAfter(2.0f);
 }
 
 void CPlayScene::Update(DWORD dt)
 {
+	if (spawner != NULL)
+		spawner->Update(dt);
+
 	// We know that Mario is the first object in the list hence we won't add him into the colliable object list
 	// TO-DO: This is a "dirty" way, need a more organized way 
 
@@ -297,6 +305,13 @@ void CPlayScene::Unload()
 
 	objects.clear();
 	player = NULL;
+
+	if (spawner != NULL)
+	{
+		delete spawner;
+		spawner = NULL;
+	}
+	spawner = NULL;
 
 	DebugOut(L"[INFO] Scene %d unloaded! \n", id);
 }
